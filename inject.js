@@ -12,6 +12,9 @@ chrome.runtime.sendMessage({}, function(response) {
       fasterKeyCode: 68,    // default: D
       rewindKeyCode: 90,    // default: Z
       advanceKeyCode: 88,   // default: X
+
+      speeds: {},           // empty object to hold speed for each source
+
       displayKeyCode: 86,   // default: V
       fastKeyCode: 71,      // default: G
       rememberSpeed: false, // default: false
@@ -60,12 +63,25 @@ chrome.runtime.sendMessage({}, function(response) {
       this.id = Math.random().toString(36).substr(2, 9);
       if (!tc.settings.rememberSpeed) {
         tc.settings.speed = 1.0;
+        if (!tc.settings.speeds[target.src]) {
+          tc.settings.speeds[target.src] = 1.0;
+        }
         tc.settings.resetSpeed = tc.settings.fastSpeed;
+      } else{
+        tc.settings.speeds[target.src] = tc.settings.speed;
       }
       this.initializeControls();
 
       target.addEventListener('play', function(event) {
-        target.playbackRate = tc.settings.speed;
+        if (!tc.settings.rememberSpeed) {
+          if (!tc.settings.speeds[target.src]) {
+            tc.settings.speeds[target.src] = 1.0;
+          }
+          setKeyBindings("reset", getKeyBindings("fast")); // resetSpeed = fastSpeed
+        } else{
+          tc.settings.speeds[target.src] = tc.settings.speed;
+        }	  
+        target.playbackRate = tc.settings.speeds[target.src];
       });
 
       target.addEventListener('ratechange', function(event) {
@@ -74,14 +90,14 @@ chrome.runtime.sendMessage({}, function(response) {
         if (event.target.readyState > 0) {
           var speed = this.getSpeed();
           this.speedIndicator.textContent = speed;
-          tc.settings.speed = speed;
+          tc.settings.speeds[this.video.src] = speed;
           chrome.storage.local.set({'speed': speed}, function() {
             console.log('Speed setting saved: ' + speed);
           });
         }
       }.bind(this));
 
-      target.playbackRate = tc.settings.speed;
+      target.playbackRate = tc.settings.speeds[target.src];
     };
 
     tc.videoController.prototype.getSpeed = function() {
@@ -94,7 +110,7 @@ chrome.runtime.sendMessage({}, function(response) {
 
     tc.videoController.prototype.initializeControls = function() {
       var document = this.document;
-      var speed = parseFloat(tc.settings.speed).toFixed(2),
+      var speed = parseFloat(tc.settings.speeds[this.video.src]).toFixed(2),
         top = Math.max(this.video.offsetTop, 0) + "px",
         left = Math.max(this.video.offsetLeft, 0) + "px";
 
@@ -360,11 +376,18 @@ chrome.runtime.sendMessage({}, function(response) {
   function runAction(action, document, keyboard, e) {
     var videoTags = document.getElementsByTagName('video');
     videoTags.forEach = Array.prototype.forEach;
+    // Get the controller that was used if called from a button press event e
+    if (e){
+      var targetController = e.target.getRootNode().host;
+    }
 
     videoTags.forEach(function(v) {
       var id = v.dataset['vscid'];
       var controller = document.querySelector(`div[data-vscid="${id}"]`);
-
+      // Don't change video speed if the video has a different controller
+      if (e && !(targetController == controller)) {
+        return;
+      }
       showController(controller);
 
       if (!v.classList.contains('vsc-cancelled')) {
